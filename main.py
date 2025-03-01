@@ -15,10 +15,10 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # MySQL connection setup (using environment variables)
-DATABASE_HOST = os.getenv('DATABASE_HOST')
-DATABASE_USER = os.getenv('DATABASE_USER')
-DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD')
-DATABASE_NAME = os.getenv('DATABASE_NAME')
+DATABASE_HOST = "mysql-1c88708d-peeyushh.l.aivencloud.com"
+DATABASE_USER = "avnadmin"
+DATABASE_PASSWORD = "AVNS_iDydXCW0_gyIYRZkAGb"
+DATABASE_NAME = "bot" 
 
 # Define conversation states
 NAME, AGE, DOB, CONTACT = range(4)
@@ -66,13 +66,6 @@ async def handle_dob(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Please provide your contact number.")
     return CONTACT
 
-async def handle_contact(update: Update, context: CallbackContext) -> int:
-    """Handle user's contact number input and save the data."""
-    global contact
-    contact = update.message.text
-    await save_to_database(update.message.from_user)
-    await update.message.reply_text("Thank you! Your data has been saved.")
-    return ConversationHandler.END
 
 async def save_to_database(user) -> None:
     """Save user data to the MySQL database on Railway"""
@@ -81,7 +74,8 @@ async def save_to_database(user) -> None:
             host=DATABASE_HOST,
             user=DATABASE_USER,
             password=DATABASE_PASSWORD,
-            database=DATABASE_NAME
+            database=DATABASE_NAME,
+            auth_plugin = "mysql_native_password"
         )
         cursor = connection.cursor()
         
@@ -99,6 +93,14 @@ async def save_to_database(user) -> None:
             cursor.close()
             connection.close()
 
+async def handle_contact(update: Update, context: CallbackContext) -> int:
+    """Handle user's contact number input and save the data."""
+    global contact
+    contact = update.message.text
+    await save_to_database(update.message.from_user)
+    await update.message.reply_text("Thank you! Your data has been saved.")
+    return ConversationHandler.END
+  
 async def help_command(update: Update, context: CallbackContext) -> None:
     """Help command showing available bot commands."""
     await update.message.reply_text("/start - Begin data collection\n/help - Show this help message\n/About - Information about the bot.")
