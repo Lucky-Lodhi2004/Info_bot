@@ -3,117 +3,121 @@ import logging
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ConversationHandler
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Telegram Bot Token (set in .env file)
+# Telegram Bot Token from Railway Environment Variables
 TOKEN = os.getenv("BOT_TOKEN")
+DB_URL = os.getenv("DATABASE_URL")
 
-# Local PostgreSQL Database Credentials
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST", "localhost")  # Default to localhost
-DB_PORT = os.getenv("DB_PORT", "5432")  # Default PostgreSQL port
+# Database connection setup
+conn = psycopg2.connect(DB_URL)
+cur = conn.cursor()
 
-# Configure logging
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Logging setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Define states for ConversationHandler
+# States for ConversationHandler
 NAME, AGE, DOB, CONTACT = range(4)
 
-# Function to connect to the PostgreSQL database
-def connect_db():
-    return psycopg2.connect(
-        dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD, host=DB_HOST, port=DB_PORT
+# Create the users table if it doesn't exist
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT UNIQUE,
+        name TEXT,
+        age INT,
+        dob TEXT,
+        contact TEXT
     )
+""")
+conn.commit()
 
-# Create a table for user data
-def create_table():
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            age INTEGER NOT NULL,
-            dob TEXT NOT NULL,
-            contact TEXT NOT NULL
-        )
-        """
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
 
-# Start command handler
-async def start(update: Update, context):
-    await update.message.reply_text("Hello! What is your name?")
+async def start(update: Update, context: CallbackContext) -> int:
+    """Starts the conversation by asking for the user's name."""
+    await update.message.reply_text("Hello! What's your name?")
     return NAME
 
-# Handle user's name
-async def get_name(update: Update, context):
+
+async def get_name(update: Update, context: CallbackContext) -> int:
+    """Stores the name and asks for the age."""
     context.user_data["name"] = update.message.text
-    await update.message.reply_text("Great! How old are you?")
+    await update.message.reply_text("Great! Now, how old are you?")
     return AGE
 
-# Handle user's age
-async def get_age(update: Update, context):
+
+async def get_age(update: Update, context: CallbackContext) -> int:
+    """Stores the age and asks for the date of birth."""
     context.user_data["age"] = update.message.text
-    await update.message.reply_text("Nice! What is your date of birth? (DD-MM-YYYY)")
+    await update.message.reply_text("Thanks! Please enter your date of birth (YYYY-MM-DD).")
     return DOB
 
-# Handle user's date of birth
-async def get_dob(update: Update, context):
+
+async def get_dob(update: Update, context: CallbackContext) -> int:
+    """Stores the date of birth and asks for the contact number."""
     context.user_data["dob"] = update.message.text
-    await update.message.reply_text("Finally, please provide your contact number.")
+    await update.message.reply_text("Almost done! Please enter your contact number.")
     return CONTACT
 
-# Handle user's contact number and save data to the database
-async def get_contact(update: Update, context):
-    contact = update.message.text
+
+async def get_contact(update: Update, context: CallbackContext) -> int:
+    """Stores the contact number and saves user data to PostgreSQL."""
+    user_id = update.message.from_user.id
     name = context.user_data["name"]
     age = context.user_data["age"]
     dob = context.user_data["dob"]
+    contact = update.message.text
 
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO users (name, age, dob, contact) VALUES (%s, %s, %s, %s)",
-        (name, age, dob, contact),
-    )
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        cur.execute("INSERT INTO users (user_id, name, age, dob, contact) VALUES (%s, %s, %s, %s, %s)",
+                    (user_id, name, age, dob, contact))
+        conn.commit()
+        await update.message.reply_text("Your details have been saved successfully!")
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        await update.message.reply_text("An error occurred while saving your data.")
 
-    await update.message.reply_text("Thank you! Your details have been saved.")
     return ConversationHandler.END
 
-# Help command handler
-async def help_command(update: Update, context):
-    await update.message.reply_text("/start - Register yourself\n/help - Show commands\n/About - Learn about this bot")
 
-# About command handler
-async def about_command(update: Update, context):
-    about_text = "This bot collects user details and stores them securely in a local PostgreSQL database."
+async def help_command(update: Update, context: CallbackContext) -> None:
+    """Provides help information."""
+    help_text = (
+        "/start - Register yourself with the bot.\n"
+        "/help - Show this help message.\n"
+        "/about - Learn about this bot."
+    )
+    await update.message.reply_text(help_text)
+
+
+async def about_command(update: Update, context: CallbackContext) -> None:
+    """Provides information about the bot."""
+    about_text = (
+        "This bot collects and stores user details securely.\n"
+        "Features:\n"
+        "- Collects user details interactively.\n"
+        "- Stores details in a secure PostgreSQL database.\n"
+        "- Provides information about commands.\n"
+        "All data is securely stored on Railway.app."
+    )
     await update.message.reply_text(about_text)
 
-# Cancel command handler
-async def cancel(update: Update, context):
-    await update.message.reply_text("Registration process canceled.")
+
+async def cancel(update: Update, context: CallbackContext) -> int:
+    """Cancels the conversation."""
+    await update.message.reply_text("Operation cancelled.")
     return ConversationHandler.END
 
-# Main function
-def main():
-    create_table()  # Ensure database table exists before starting bot
 
+def main():
+    """Main function to start the bot."""
     app = Application.builder().token(TOKEN).build()
 
+    # Define conversation handler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -125,12 +129,15 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    # Command handlers
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
 
-    logging.info("Bot is running...")
+    # Start polling
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
+
