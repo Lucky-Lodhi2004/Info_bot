@@ -27,7 +27,6 @@ NAME, AGE, DOB, CONTACT = range(4)
 cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        user_id BIGINT UNIQUE,
         name TEXT,
         age INT,
         dob TEXT,
@@ -73,8 +72,8 @@ async def get_contact(update: Update, context: CallbackContext) -> int:
     contact = update.message.text
 
     try:
-        cur.execute("INSERT INTO users (user_id, name, age, dob, contact) VALUES (%s, %s, %s, %s, %s)",
-                    (user_id, name, age, dob, contact))
+        cur.execute("INSERT INTO users (name, age, dob, contact) VALUES (%s, %s, %s, %s)",
+                    (name, age, dob, contact))
         conn.commit()
         await update.message.reply_text("Your details have been saved successfully!")
     except Exception as e:
